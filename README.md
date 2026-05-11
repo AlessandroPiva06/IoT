@@ -1,7 +1,7 @@
 PIR (HC-SR501):  
-VCC VIN (5V)Alimentazione
-GND GND Massa
-OUT GPIO13 Segnale digitale
+VCC VIN (5V)Alimentazione  des
+GND GND Massa   sin
+OUT GPIO13 Segnale digitale centro
 
 HC-SR04:
 VCC VIN(5V) Alimentazione
