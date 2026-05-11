@@ -16,9 +16,9 @@
 #include <Adafruit_SSD1306.h>
 
 // ---------- CONFIGURAZIONE ----------
-const char* WIFI_SSID     = "NomeRete";
-const char* WIFI_PASSWORD = "password";
-const char* MQTT_SERVER   = "192.168.1.100";   // IP del PC con il server
+const char* WIFI_SSID     = "TPSITquinteBis";
+const char* WIFI_PASSWORD = "quintaemme";
+const char* MQTT_SERVER   = "192.168.114.127";   // IP del PC con il server
 const int   MQTT_PORT     = 1883;
 
 // ---------- TOPIC MQTT ----------

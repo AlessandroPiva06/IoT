@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>SmartStation — Pannello di Controllo</title>
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Bebas+Neue&family=Barlow:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+/* ── RESET & BASE ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0a0c0f;
+  --bg2:       #101318;
+  --bg3:       #161b22;
+  --border:    #1e2530;
+  --text:      #c9d1d9;
+  --muted:     #4a5568;
+  --green:     #39d353;
+  --amber:     #f0b429;
+  --red:       #ff4444;
+  --blue:      #58a6ff;
+  --cyan:      #39c5cf;
+  --mono:      'Share Tech Mono', monospace;
+  --display:   'Bebas Neue', sans-serif;
+  --body:      'Barlow', sans-serif;
+  --r:         6px;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--body);
+  min-height: 100vh;
+  font-size: 15px;
+}
+
+/* ── SCANLINE OVERLAY ──────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.06) 2px,
+    rgba(0,0,0,0.06) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ── LAYOUT ────────────────────────────────────────────────── */
+.shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 20px 40px;
+}
+
+/* ── HEADER ────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.logo {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.logo-title {
+  font-family: var(--display);
+  font-size: 2.2rem;
+  letter-spacing: 2px;
+  color: #eee;
+  line-height: 1;
+}
+
+.logo-sub {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 3px;
+}
+
+.header-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 1.5px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  border: 1px solid;
+  text-transform: uppercase;
+}
+
+.badge-mqtt  { border-color: var(--muted); color: var(--muted); }
+.badge-mqtt.ok { border-color: var(--blue); color: var(--blue); }
+.badge-esp   { border-color: var(--muted); color: var(--muted); }
+.badge-esp.ok { border-color: var(--green); color: var(--green); }
+.badge-time  { border-color: var(--border); color: var(--muted); }
+
+/* ── ALARM BANNER ──────────────────────────────────────────── */
+#alarm-banner {
+  display: none;
+  background: rgba(255,68,68,0.12);
+  border: 1px solid var(--red);
+  border-radius: var(--r);
+  padding: 14px 20px;
+  margin: 18px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  animation: pulse-border 1.2s ease-in-out infinite;
+}
+#alarm-banner.hidden { display: none !important; }
+
+@keyframes pulse-border {
+  0%,100% { border-color: var(--red); box-shadow: 0 0 0 0 rgba(255,68,68,0); }
+  50%      { border-color: #ff6666;   box-shadow: 0 0 16px 2px rgba(255,68,68,0.2); }
+}
+
+.alarm-text {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--red);
+  letter-spacing: 2px;
+}
+
+/* ── MAIN GRID ─────────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+@media (max-width: 900px) {
+  .main-grid { grid-template-columns: 1fr; }
+}
+
+/* ── CARD ──────────────────────────────────────────────────── */
+.card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px;
+}
+
+.card-title {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 3px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── PANNELLO CONTROLLO ────────────────────────────────────── */
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* arm button */
+.arm-btn {
+  width: 100%;
+  padding: 28px 0;
+  border: 2px solid var(--green);
+  border-radius: var(--r);
+  background: rgba(57,211,83,0.07);
+  color: var(--green);
+  font-family: var(--display);
+  font-size: 2rem;
+  letter-spacing: 4px;
+  cursor: pointer;
+  transition: all .2s;
+  position: relative;
+  overflow: hidden;
+}
+.arm-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(transparent 60%, rgba(57,211,83,0.08));
+}
+.arm-btn:hover {
+  background: rgba(57,211,83,0.15);
+  box-shadow: 0 0 24px rgba(57,211,83,0.2);
+}
+.arm-btn.armato {
+  border-color: var(--amber);
+  color: var(--amber);
+  background: rgba(240,180,41,0.07);
+}
+.arm-btn.armato::after {
+  background: linear-gradient(transparent 60%, rgba(240,180,41,0.08));
+}
+.arm-btn.armato:hover {
+  background: rgba(240,180,41,0.15);
+  box-shadow: 0 0 24px rgba(240,180,41,0.2);
+}
+.arm-btn.allarme {
+  border-color: var(--red);
+  color: var(--red);
+  background: rgba(255,68,68,0.07);
+  animation: blink-btn 0.8s ease-in-out infinite;
+}
+@keyframes blink-btn {
+  0%,100% { background: rgba(255,68,68,0.07); }
+  50%     { background: rgba(255,68,68,0.18); }
+}
+
+.arm-sub {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 2px;
+  opacity: .5;
+  margin-top: 4px;
+}
+
+/* sensor mini cards */
+.sensor-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sensor-mini {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+}
+
+.sensor-mini-label {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  letter-spacing: 2px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.sensor-mini-value {
+  font-family: var(--mono);
+  font-size: 1.4rem;
+  color: var(--cyan);
+  line-height: 1;
+}
+
+.sensor-mini-unit {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-left: 3px;
+}
+
+.sensor-mini.temp  .sensor-mini-value { color: var(--amber); }
+.sensor-mini.press .sensor-mini-value { color: var(--blue);  }
+
+/* actions */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn {
+  padding: 10px 16px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 1.5px;
+  cursor: pointer;
+  transition: all .15s;
+  text-align: left;
+}
+.btn:hover { background: var(--bg3); border-color: var(--muted); }
+.btn.danger { border-color: rgba(255,68,68,0.4); color: var(--red); }
+.btn.danger:hover { background: rgba(255,68,68,0.08); }
+.btn.info   { border-color: rgba(88,166,255,0.4); color: var(--blue); }
+.btn.info:hover { background: rgba(88,166,255,0.08); }
+
+.btn-icon { margin-right: 8px; }
+
+/* uptime */
+.uptime-bar {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 14px;
+}
+
+.uptime-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+.uptime-label { color: var(--muted); letter-spacing: 1px; }
+.uptime-value { color: var(--text); }
+
+/* ── PANNELLO DESTRO ───────────────────────────────────────── */
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Chart */
+.chart-wrap {
+  position: relative;
+  height: 220px;
+}
+
+/* ── EVENTI LOG ────────────────────────────────────────────── */
+.log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-btn {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 1.5px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all .15s;
+}
+.filter-btn:hover,
+.filter-btn.active { background: var(--bg3); color: var(--text); border-color: var(--muted); }
+.filter-btn[data-tipo="ALLARME"].active { color: var(--red);   border-color: var(--red); }
+.filter-btn[data-tipo="SISTEMA"].active { color: var(--blue);  border-color: var(--blue); }
+.filter-btn[data-tipo="COMANDO"].active { color: var(--amber); border-color: var(--amber); }
+
+.log-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+
+.log-table-wrap::-webkit-scrollbar { width: 4px; }
+.log-table-wrap::-webkit-scrollbar-track { background: var(--bg3); }
+.log-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+}
+
+thead tr {
+  background: var(--bg3);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+th {
+  padding: 8px 12px;
+  text-align: left;
+  color: var(--muted);
+  letter-spacing: 1.5px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+}
+
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(30,37,48,0.5);
+  color: var(--text);
+  vertical-align: middle;
+}
+
+tr:last-child td { border-bottom: none; }
+
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.tipo-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  letter-spacing: 1px;
+  border: 1px solid;
+}
+
+.tipo-ALLARME { color: var(--red);   border-color: rgba(255,68,68,0.4);  background: rgba(255,68,68,0.08); }
+.tipo-PIR     { color: var(--red);   border-color: rgba(255,68,68,0.4);  background: rgba(255,68,68,0.08); }
+.tipo-SISTEMA { color: var(--blue);  border-color: rgba(88,166,255,0.4); background: rgba(88,166,255,0.08); }
+.tipo-COMANDO { color: var(--amber); border-color: rgba(240,180,41,0.4); background: rgba(240,180,41,0.08); }
+.tipo-default { color: var(--muted); border-color: var(--border);        background: transparent; }
+
+.ts { color: var(--muted); font-size: 0.68rem; white-space: nowrap; }
+.msg { color: var(--text); }
+
+.log-empty {
+  text-align: center;
+  padding: 32px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 2px;
+}
+
+/* ── TOAST ─────────────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast-item {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 10px 16px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  letter-spacing: 1px;
+  animation: slide-in .25s ease forwards;
+  pointer-events: auto;
+}
+.toast-item.ok  { border-color: var(--green); color: var(--green); }
+.toast-item.err { border-color: var(--red);   color: var(--red);   }
+
+@keyframes slide-in {
+  from { opacity:0; transform: translateX(20px); }
+  to   { opacity:1; transform: translateX(0); }
+}
+
+/* scrollbar globale */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── HEADER ──────────────────────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div>
+        <div class="logo-title">SMARTSTATION</div>
+        <div class="logo-sub">PANNELLO DI CONTROLLO</div>
+      </div>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-mqtt" id="badge-mqtt">● MQTT</span>
+      <span class="badge badge-esp"  id="badge-esp">● ESP32</span>
+      <span class="badge badge-time" id="badge-time">--:--:--</span>
+    </div>
+  </header>
+
+  <!-- ── ALARM BANNER ────────────────────────────────────────── -->
+  <div id="alarm-banner" class="hidden">
+    <span class="alarm-text">⚠ ALLARME ATTIVO — INTRUSIONE RILEVATA</span>
+    <button class="btn danger" onclick="resetAllarme()">
+      <span class="btn-icon">✕</span>RESET ALLARME
+    </button>
+  </div>
+
+  <!-- ── MAIN GRID ────────────────────────────────────────────── -->
+  <div class="main-grid">
+
+    <!-- ── PANNELLO SINISTRO ─────────────────────────────────── -->
+    <div class="control-panel">
+
+      <!-- Arm / Disarm -->
+      <button class="arm-btn" id="arm-btn" onclick="toggleArma()">
+        <div id="arm-label">DISARMATO</div>
+        <div class="arm-sub" id="arm-sub">CLICCA PER ARMARE</div>
+      </button>
+
+      <!-- Sensori -->
+      <div>
+        <div class="card-title">◈ SENSORI IN TEMPO REALE</div>
+        <div class="sensor-grid">
+          <div class="sensor-mini temp">
+            <div class="sensor-mini-label">Temperatura</div>
+            <div class="sensor-mini-value" id="s-temp">--<span class="sensor-mini-unit">°C</span></div>
+          </div>
+          <div class="sensor-mini">
+            <div class="sensor-mini-label">Umidità</div>
+            <div class="sensor-mini-value" id="s-umid">--<span class="sensor-mini-unit">%</span></div>
+          </div>
+          <div class="sensor-mini press">
+            <div class="sensor-mini-label">Pressione</div>
+            <div class="sensor-mini-value" id="s-press">--<span class="sensor-mini-unit">hPa</span></div>
+          </div>
+          <div class="sensor-mini">
+            <div class="sensor-mini-label">Uptime</div>
+            <div class="sensor-mini-value" id="s-uptime" style="font-size:1rem">--<span class="sensor-mini-unit">s</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Uptime / info -->
+      <div class="uptime-bar">
+        <div class="uptime-row">
+          <span class="uptime-label">ULTIMO AGG.</span>
+          <span class="uptime-value" id="last-update">—</span>
+        </div>
+      </div>
+
+      <!-- Azioni -->
+      <div>
+        <div class="card-title">◈ AZIONI</div>
+        <div class="actions">
+          <button class="btn danger" onclick="resetAllarme()">
+            <span class="btn-icon">⚑</span>RESET ALLARME
+          </button>
+          <button class="btn info" onclick="testEmail()">
+            <span class="btn-icon">✉</span>INVIA EMAIL TEST
+          </button>
+          <button class="btn" onclick="inviaCmd('reboot')">
+            <span class="btn-icon">↺</span>RIAVVIA ESP32
+          </button>
+          <button class="btn" onclick="inviaCmd('info')">
+            <span class="btn-icon">ℹ</span>INFO HEAP / RSSI
+          </button>
+          <button class="btn danger" onclick="cancellaLog()" style="margin-top:4px;">
+            <span class="btn-icon">⊘</span>CANCELLA STORICO
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── PANNELLO DESTRO ──────────────────────────────────── -->
+    <div class="right-panel">
+
+      <!-- Grafico -->
+      <div class="card">
+        <div class="card-title">◈ ANDAMENTO SENSORI — ULTIME 60 RILEVAZIONI</div>
+        <div class="chart-wrap">
+          <canvas id="sensorChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Log eventi -->
+      <div class="card">
+        <div class="log-header">
+          <div class="card-title" style="margin:0;border:none;padding:0;">◈ STORICO EVENTI</div>
+          <div class="filter-row">
+            <button class="filter-btn active" data-tipo="" onclick="setFilter(this, '')">TUTTI</button>
+            <button class="filter-btn" data-tipo="ALLARME" onclick="setFilter(this, 'ALLARME')">ALLARME</button>
+            <button class="filter-btn" data-tipo="PIR"     onclick="setFilter(this, 'PIR')">PIR</button>
+            <button class="filter-btn" data-tipo="SISTEMA" onclick="setFilter(this, 'SISTEMA')">SISTEMA</button>
+            <button class="filter-btn" data-tipo="COMANDO" onclick="setFilter(this, 'COMANDO')">COMANDI</button>
+          </div>
+        </div>
+
+        <div class="log-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>DATA / ORA</th>
+                <th>TIPO</th>
+                <th>MESSAGGIO</th>
+              </tr>
+            </thead>
+            <tbody id="log-body">
+              <tr><td colspan="3" class="log-empty">CARICAMENTO...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div><!-- /main-grid -->
+
+</div><!-- /shell -->
+
+<!-- ── TOAST ──────────────────────────────────────────────── -->
+<div id="toast"></div>
+
+<script>
+// ============================================================
+//  STATO
+// ============================================================
+let stato = { armato: false, allarme: false, connesso: false, mqttOk: false };
+let filtroCorrente = '';
+let tuttiGliEventi = [];
+let chart = null;
+
+// ============================================================
+//  SOCKET.IO
+// ============================================================
+const socket = io();
+
+socket.on('connect',    () => { toast('Connesso al server', 'ok'); });
+socket.on('disconnect', () => { toast('Server disconnesso', 'err'); });
+
+socket.on('stato_aggiornato', (s) => {
+  stato = s;
+  aggiornaUI();
+});
+
+socket.on('dati_aggiornati', (d) => {
+  aggiornaSensori(d);
+});
+
+socket.on('nuovo_evento', (evt) => {
+  tuttiGliEventi.unshift(evt);
+  if (tuttiGliEventi.length > 500) tuttiGliEventi.pop();
+  renderLog();
+});
+
+socket.on('allarme_attivo', () => {
+  toast('⚠ ALLARME ATTIVO!', 'err');
+});
+
+// ============================================================
+//  UI — AGGIORNAMENTO STATO
+// ============================================================
+function aggiornaUI() {
+  const btn    = document.getElementById('arm-btn');
+  const label  = document.getElementById('arm-label');
+  const sub    = document.getElementById('arm-sub');
+  const banner = document.getElementById('alarm-banner');
+
+  // Badge MQTT
+  const bMqtt = document.getElementById('badge-mqtt');
+  bMqtt.textContent = '● MQTT';
+  bMqtt.className   = 'badge badge-mqtt' + (stato.mqttOk ? ' ok' : '');
+
+  // Badge ESP32
+  const bEsp = document.getElementById('badge-esp');
+  bEsp.textContent = '● ESP32';
+  bEsp.className   = 'badge badge-esp' + (stato.connesso ? ' ok' : '');
+
+  // Alarm banner
+  if (stato.allarme) {
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+
+  // Arm button
+  btn.className = 'arm-btn';
+  if (stato.allarme) {
+    btn.classList.add('allarme');
+    label.textContent = '⚠ ALLARME';
+    sub.textContent   = 'SISTEMA IN ALLARME';
+  } else if (stato.armato) {
+    btn.classList.add('armato');
+    label.textContent = 'ARMATO';
+    sub.textContent   = 'CLICCA PER DISARMARE';
+  } else {
+    label.textContent = 'DISARMATO';
+    sub.textContent   = 'CLICCA PER ARMARE';
+  }
+}
+
+function aggiornaSensori(d) {
+  if (!d) return;
+  document.getElementById('s-temp').innerHTML  = `${d.temp ?? '--'}<span class="sensor-mini-unit">°C</span>`;
+  document.getElementById('s-umid').innerHTML  = `${d.umidita ?? '--'}<span class="sensor-mini-unit">%</span>`;
+  document.getElementById('s-press').innerHTML = `${d.pressione ?? '--'}<span class="sensor-mini-unit">hPa</span>`;
+  const uptime = d.uptime != null ? formatUptime(d.uptime) : '--';
+  document.getElementById('s-uptime').innerHTML = `${uptime}`;
+  document.getElementById('last-update').textContent = d.timestamp ?? '--';
+}
+
+function formatUptime(sec) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// ============================================================
+//  OROLOGIO
+// ============================================================
+function aggiornaOrologio() {
+  document.getElementById('badge-time').textContent =
+    new Date().toLocaleTimeString('it-IT');
+}
+setInterval(aggiornaOrologio, 1000);
+aggiornaOrologio();
+
+// ============================================================
+//  GRAFICO
+// ============================================================
+async function initChart() {
+  const res  = await fetch('/api/dati?limit=60');
+  const data = await res.json();
+
+  const labels = data.map(r => r.timestamp.slice(11, 16));
+  const temps  = data.map(r => r.temperatura);
+  const umids  = data.map(r => r.umidita);
+
+  const ctx = document.getElementById('sensorChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Temperatura (°C)',
+          data: temps,
+          borderColor: '#f0b429',
+          backgroundColor: 'rgba(240,180,41,0.08)',
+          tension: 0.4,
+          pointRadius: 0,
+          borderWidth: 2,
+          fill: true
+        },
+        {
+          label: 'Umidità (%)',
+          data: umids,
+          borderColor: '#39c5cf',
+          backgroundColor: 'rgba(57,197,207,0.06)',
+          tension: 0.4,
+          pointRadius: 0,
+          borderWidth: 2,
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 600 },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#4a5568',
+            font: { family: "'Share Tech Mono'", size: 11 },
+            boxWidth: 12
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#4a5568', font: { family: "'Share Tech Mono'", size: 10 }, maxTicksLimit: 8 },
+          grid:  { color: 'rgba(30,37,48,0.8)' }
+        },
+        y: {
+          ticks: { color: '#4a5568', font: { family: "'Share Tech Mono'", size: 10 } },
+          grid:  { color: 'rgba(30,37,48,0.8)' }
+        }
+      }
+    }
+  });
+}
+
+// Aggiorna il grafico quando arrivano nuovi dati
+socket.on('dati_aggiornati', (d) => {
+  if (!chart) return;
+  const t = (d.timestamp || '').slice(11, 16) || '--';
+  chart.data.labels.push(t);
+  chart.data.datasets[0].data.push(d.temp);
+  chart.data.datasets[1].data.push(d.umidita);
+  if (chart.data.labels.length > 60) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds => ds.data.shift());
+  }
+  chart.update('none');
+});
+
+// ============================================================
+//  LOG EVENTI
+// ============================================================
+async function caricaEventi() {
+  const url = filtroCorrente
+    ? `/api/eventi?limit=200&tipo=${filtroCorrente}`
+    : '/api/eventi?limit=200';
+  const res  = await fetch(url);
+  tuttiGliEventi = await res.json();
+  renderLog();
+}
+
+function renderLog() {
+  const tbody = document.getElementById('log-body');
+  const lista = filtroCorrente
+    ? tuttiGliEventi.filter(e => e.tipo === filtroCorrente)
+    : tuttiGliEventi;
+
+  if (lista.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="log-empty">NESSUN EVENTO</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = lista.map(e => {
+    const tipoClass = ['ALLARME','PIR','SISTEMA','COMANDO'].includes(e.tipo)
+      ? `tipo-${e.tipo}` : 'tipo-default';
+    return `
+      <tr>
+        <td class="ts">${e.timestamp || ''}</td>
+        <td><span class="tipo-badge ${tipoClass}">${e.tipo}</span></td>
+        <td class="msg">${e.messaggio || ''}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function setFilter(el, tipo) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  filtroCorrente = tipo;
+  renderLog();
+}
+
+// ============================================================
+//  AZIONI
+// ============================================================
+async function toggleArma() {
+  const nuovoStato = !stato.armato;
+  try {
+    await fetch('/api/arma', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ armato: nuovoStato })
+    });
+    toast(nuovoStato ? '🔒 Sistema armato' : '🔓 Sistema disarmato', 'ok');
+  } catch (e) { toast('Errore di connessione', 'err'); }
+}
+
+async function resetAllarme() {
+  try {
+    await fetch('/api/reset_allarme', { method: 'POST' });
+    toast('Allarme resettato', 'ok');
+  } catch (e) { toast('Errore di connessione', 'err'); }
+}
+
+async function inviaCmd(cmd) {
+  try {
+    await fetch('/api/cmd', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd })
+    });
+    toast(`Comando inviato: ${cmd}`, 'ok');
+  } catch (e) { toast('Errore invio comando', 'err'); }
+}
+
+async function testEmail() {
+  try {
+    await fetch('/api/test_email', { method: 'POST' });
+    toast('Email di test inviata', 'ok');
+  } catch (e) { toast('Errore invio email', 'err'); }
+}
+
+async function cancellaLog() {
+  if (!confirm('Cancellare tutto lo storico eventi?')) return;
+  try {
+    await fetch('/api/eventi', { method: 'DELETE' });
+    tuttiGliEventi = [];
+    renderLog();
+    toast('Storico cancellato', 'ok');
+  } catch (e) { toast('Errore cancellazione', 'err'); }
+}
+
+// ============================================================
+//  TOAST
+// ============================================================
+function toast(msg, tipo = '') {
+  const el = document.createElement('div');
+  el.className = `toast-item ${tipo}`;
+  el.textContent = msg;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ============================================================
+//  INIT
+// ============================================================
+(async () => {
+  // Carica stato iniziale
+  try {
+    const res = await fetch('/api/stato');
+    stato = await res.json();
+    aggiornaUI();
+    if (stato.ultimiDati) aggiornaSensori(stato.ultimiDati);
+  } catch {}
+
+  await caricaEventi();
+  await initChart();
+})();
+</script>
+</body>
+</html>

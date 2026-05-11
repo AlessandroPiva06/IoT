@@ -1,0 +1,21 @@
+{
+  "name": "smartstation-server",
+  "version": "1.0.0",
+  "description": "SmartStation — pannello web, MQTT bridge, email alert",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev":   "nodemon server.js"
+  },
+  "dependencies": {
+    "dotenv":    "^16.4.5",
+    "express":   "^4.19.2",
+    "mqtt":      "^5.7.2",
+    "nodemailer":"^6.9.14",
+    "socket.io": "^4.7.5",
+    "sqlite3":   "^5.1.7"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
